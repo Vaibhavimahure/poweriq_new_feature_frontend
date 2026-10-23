@@ -1,0 +1,65 @@
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "channel": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_AUTH_BASE_URL": "https://api-communication.vercel.app/api/v1",
+        "EXPO_PUBLIC_ALERT_API_BASE_URL": "https://dev.esmbackend.click/api/alert/api/v1",
+        "EXPO_PUBLIC_ALERT_SOCKET_URL": "https://dev.esmbackend.click",
+        "EXPO_PUBLIC_ALERT_SOCKET_PATH": "/api/alert/socket.io",
+        "EXPO_PUBLIC_TELEMETRY_API_BASE_URL": "https://dev.esmbackend.click/api/telemetry",
+        "EXPO_PUBLIC_COMMUNICATION_API_BASE_URL": "https://api-communication.vercel.app/api/v1",
+        "EXPO_PUBLIC_COMMUNICATION_SOCKET_URL": "https://api-communication.vercel.app",
+        "EXPO_PUBLIC_COMMUNICATION_SOCKET_PATH": "/api/communication/socket.io"
+      }
+    },
+
+    "production-apk": {
+      "distribution": "internal",
+      "environment": "production",
+      "channel": "production",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_AUTH_BASE_URL": "https://api-communication.vercel.app/api/v1",
+        "EXPO_PUBLIC_ALERT_API_BASE_URL": "https://dev.esmbackend.click/api/alert/api/v1",
+        "EXPO_PUBLIC_ALERT_SOCKET_URL": "https://dev.esmbackend.click",
+        "EXPO_PUBLIC_ALERT_SOCKET_PATH": "/api/alert/socket.io",
+        "EXPO_PUBLIC_TELEMETRY_API_BASE_URL": "https://dev.esmbackend.click/api/telemetry",
+        "EXPO_PUBLIC_COMMUNICATION_API_BASE_URL": "https://api-communication.vercel.app/api/v1",
+        "EXPO_PUBLIC_COMMUNICATION_SOCKET_URL": "https://api-communication.vercel.app",
+        "EXPO_PUBLIC_COMMUNICATION_SOCKET_PATH": "/api/communication/socket.io"
+      }
+    },
+
+    "production": {
+      "environment": "production",
+      "channel": "production",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_AUTH_BASE_URL": "https://api-communication.vercel.app/api/v1",
+        "EXPO_PUBLIC_ALERT_API_BASE_URL": "https://dev.esmbackend.click/api/alert/api/v1",
+        "EXPO_PUBLIC_ALERT_SOCKET_URL": "https://dev.esmbackend.click",
+        "EXPO_PUBLIC_ALERT_SOCKET_PATH": "/api/alert/socket.io",
+        "EXPO_PUBLIC_TELEMETRY_API_BASE_URL": "https://dev.esmbackend.click/api/telemetry",
+        "EXPO_PUBLIC_COMMUNICATION_API_BASE_URL": "https://api-communication.vercel.app/api/v1",
+        "EXPO_PUBLIC_COMMUNICATION_SOCKET_URL": "https://api-communication.vercel.app",
+        "EXPO_PUBLIC_COMMUNICATION_SOCKET_PATH": "/api/communication/socket.io"
+      }
+    }
+  }
+}

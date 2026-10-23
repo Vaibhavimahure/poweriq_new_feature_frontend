@@ -1,0 +1,73 @@
+# ── EAS Build Upload Ignore File ──────────────────────────────────────────────
+# Excludes files/folders not needed for the cloud build process.
+# This can reduce the upload archive from 500+ MB down to ~50-100 MB.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Git metadata (never needed)
+.git
+.gitignore
+.gitattributes
+
+# Node modules (EAS installs these fresh on the build server)
+node_modules
+
+# Expo & Metro caches
+.expo
+.expo-shared
+.metro-health-check*
+
+# OS junk files
+.DS_Store
+Thumbs.db
+*.log
+
+# IDE / Editor configs
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test files & coverage reports
+__tests__
+__mocks__
+coverage
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+jest.config.*
+
+# Documentation
+*.md
+docs
+CHANGELOG*
+LICENSE*
+
+# Web build output (not needed for Android APK)
+web-build
+dist
+
+# TypeScript build info cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Temporary / scratch files
+tmp
+temp
+.tmp
+
+# EAS / Expo local secrets (these are loaded from EAS environment, not local files)
+.env.local
+.env.development
+.env.test
+
+# Android build artifacts (EAS builds these fresh)
+android/build
+android/.gradle
+android/app/build
+android/app/.cxx
+
+# iOS build artifacts (not relevant for Android-only builds)
+ios/build
+ios/Pods
+ios/DerivedData
