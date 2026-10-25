@@ -6,20 +6,20 @@ import { Platform } from "react-native";
 // DEPLOYED SERVICE URLs — Confirmed Working Endpoints (Fallback Defaults)
 // ============================================================================
 
-export const DEPLOYED_WEB_AUTH_BASE_URL = "https://dev.esmbackend.click/api/auth";
+export const DEPLOYED_WEB_AUTH_BASE_URL = "https://dev.esm.co.in/api/auth";
 export const DEPLOYED_MOBILE_AUTH_BASE_URL = "https://api-communication.vercel.app/api/v1";
 export const DEPLOYED_AUTH_BASE_URL = DEPLOYED_MOBILE_AUTH_BASE_URL;
 
-export const DEPLOYED_ALERT_BASE_URL = "https://dev.esmbackend.click/api/alert/api/v1";
-export const DEPLOYED_SOCKET_HOST_URL = "https://dev.esmbackend.click";
+export const DEPLOYED_ALERT_BASE_URL = "https://dev.esm.co.in/api/alert/api/v1";
+export const DEPLOYED_SOCKET_HOST_URL = "https://dev.esm.co.in";
 export const DEPLOYED_SOCKET_PATH = "/api/alert/socket.io";
 
-export const DEPLOYED_TELEMETRY_BASE_URL = "https://dev.esmbackend.click/api/telemetry";
-export const DEPLOYED_KPI_BASE_URL = "https://dev.esmbackend.click/api/telemetry/api/v1/kpi";
-export const DEPLOYED_DEVICE_BASE_URL = "https://dev.esmbackend.click/api/device";
-export const DEPLOYED_COMPANY_BASE_URL = "https://dev.esmbackend.click/api/company";
-export const DEPLOYED_POLICY_BASE_URL = "https://dev.esmbackend.click/api/policy";
-export const DEPLOYED_BILLS_BASE_URL = "https://dev.esmbackend.click/api/bills";
+export const DEPLOYED_TELEMETRY_BASE_URL = "https://dev.esm.co.in/api/telemetry";
+export const DEPLOYED_KPI_BASE_URL = "https://dev.esm.co.in/api/telemetry/api/v1/kpi";
+export const DEPLOYED_DEVICE_BASE_URL = "https://dev.esm.co.in/api/device";
+export const DEPLOYED_COMPANY_BASE_URL = "https://dev.esm.co.in/api/company";
+export const DEPLOYED_POLICY_BASE_URL = "https://dev.esm.co.in/api/policy";
+export const DEPLOYED_BILLS_BASE_URL = "https://dev.esm.co.in/api/bills";
 
 /** Mobile Communication & 366-Day Auth Service Base URL */
 export const AUTH_BASE_URL =
@@ -94,7 +94,7 @@ export const CONFIG = {
   WEB_AUTH_BASE_URL,
 
   // Alert REST Service
-  DEFAULT_ALERT_BASE_URL: ALERT_BASE_URL, // "https://dev.esmbackend.click/api/alert/api/v1"
+  DEFAULT_ALERT_BASE_URL: ALERT_BASE_URL, // "https://dev.esm.co.in/api/alert/api/v1"
 
   // Communication REST Service
   COMMUNICATION_BASE_URL,

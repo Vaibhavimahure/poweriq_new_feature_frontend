@@ -28,7 +28,7 @@
 
     "android": {
       "package": "com.poweriq.livealerts",
-      "versionCode": 22,
+      "versionCode": 23,
       "googleServicesFile": "./google-services.json",
       "icon": "./assets/icon.png",
 
@@ -100,7 +100,10 @@
     "updates": {
       "url": "https://u.expo.dev/b1506bc9-c624-4a4c-b876-e4d325453e29",
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 5000
+      "fallbackToCacheTimeout": 5000,
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
     }
   }
 }

@@ -133,6 +133,60 @@ assert.strictEqual(formatRuntimeHours(0), "0 hrs 0 mins");
 assert.strictEqual(formatRuntimeHours(null), "0 hrs 0 mins");
 console.log("  ✓ PASS: Runtime hours formatted exactly as '${hrs} hrs ${mins} mins'");
 
+// Test 6: Indian Number Formatting (en-IN comma grouping)
+console.log("\n[TEST 6] Indian Number Formatting (en-IN grouping & decimals)...");
+function formatIndianNumber(val, decimals = 3) {
+  if (val === null || val === undefined || val === "") return "—";
+  const num = Number(val);
+  if (!Number.isFinite(num)) return "—";
+
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(num);
+  } catch {
+    const parts = num.toFixed(decimals).split(".");
+    let intPart = parts[0];
+    const decPart = parts.length > 1 ? `.${parts[1]}` : "";
+    const isNegative = intPart.startsWith("-");
+    if (isNegative) intPart = intPart.slice(1);
+
+    const lastThree = intPart.slice(-3);
+    const otherNumbers = intPart.slice(0, -3);
+    const formatted =
+      otherNumbers.length > 0
+        ? otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + lastThree
+        : lastThree;
+
+    return (isNegative ? "-" : "") + formatted + decPart;
+  }
+}
+
+// 4-digit
+assert.strictEqual(formatIndianNumber(2099.4, 3), "2,099.400");
+// 5-digit
+assert.strictEqual(formatIndianNumber(29567.9, 1), "29,567.9");
+assert.strictEqual(formatIndianNumber(57234.07, 3), "57,234.070");
+assert.strictEqual(formatIndianNumber(9804.9, 1), "9,804.9");
+assert.strictEqual(formatIndianNumber(27717.2, 3), "27,717.200");
+// 6-digit
+assert.strictEqual(formatIndianNumber(123456, 3), "1,23,456.000");
+// 7-digit
+assert.strictEqual(formatIndianNumber(2306550, 3), "23,06,550.000");
+// 8-digit
+assert.strictEqual(formatIndianNumber(12345678, 3), "1,23,45,678.000");
+// Zero, null, negative
+assert.strictEqual(formatIndianNumber(0, 3), "0.000");
+assert.strictEqual(formatIndianNumber(null, 3), "—");
+assert.strictEqual(formatIndianNumber(undefined, 3), "—");
+assert.strictEqual(formatIndianNumber(-1500.5, 2), "-1,500.50");
+
+console.log("  ✓ PASS: 4-, 5-, 6-, 7-, and 8-digit Indian grouping formatted accurately (en-IN)");
+console.log("  ✓ PASS: 2306550.000 -> 23,06,550.000 mts verified");
+console.log("  ✓ PASS: 29567.9 -> 29,567.9 kWh verified");
+console.log("  ✓ PASS: 57234.070 -> 57,234.070 kg verified");
+
 console.log("\n========================================================");
-console.log("🎉 ALL 5/5 MACHINE-WISE SEC UNIT TESTS PASSED!");
+console.log("🎉 ALL 6/6 MACHINE-WISE SEC UNIT TESTS PASSED!");
 console.log("========================================================\n");

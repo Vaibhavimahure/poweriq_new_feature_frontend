@@ -29,6 +29,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import Svg, { Path, Circle } from "react-native-svg";
 import { Info } from "lucide-react-native";
 import { CONFIG } from "../../../config/constants";
+import { formatIndianNumber } from "../../../utils/secUtils";
 
 export interface MachineSecData {
   did: string;
@@ -92,10 +93,7 @@ export function isSecProductionDid(rawDid: string): boolean {
 }
 
 function formatMetricVal(val: any, decimals = 3): string {
-  if (val === null || val === undefined || val === "") return "—";
-  const num = Number(val);
-  if (!Number.isFinite(num)) return "—";
-  return num.toFixed(decimals);
+  return formatIndianNumber(val, decimals);
 }
 
 export const MachineWiseSecCard: React.FC<MachineWiseSecCardProps> = ({

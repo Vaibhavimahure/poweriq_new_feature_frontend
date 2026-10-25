@@ -111,12 +111,12 @@ export const FavoriteMachineScreen: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const queryMode = customRange?.label ? "custom" : "today";
-      const cardParams: any = { mode: queryMode };
-      if (customRange) {
-        cardParams.from = activeFromSec;
-        cardParams.to = activeToSec;
-      }
+      const queryMode = customRange ? (customRange.mode || "custom") : "billing_cycle";
+      const cardParams: any = {
+        mode: queryMode,
+        from: activeFromSec,
+        to: activeToSec,
+      };
 
       const [cardsRes, optionsRes] = await Promise.allSettled([
         fetchFavoriteMachines(cardParams),
@@ -413,12 +413,12 @@ export const FavoriteMachineScreen: React.FC = () => {
       await saveFavoriteMachines(payload);
 
       // Re-fetch live cards with updated favorites
-      const queryMode = customRange?.label ? "custom" : "today";
-      const cardParams: any = { mode: queryMode };
-      if (customRange) {
-        cardParams.from = activeFromSec;
-        cardParams.to = activeToSec;
-      }
+      const queryMode = customRange ? (customRange.mode || "custom") : "billing_cycle";
+      const cardParams: any = {
+        mode: queryMode,
+        from: activeFromSec,
+        to: activeToSec,
+      };
       const cardsRes = await fetchFavoriteMachines(cardParams);
       const raw =
         cardsRes?.favorites ||

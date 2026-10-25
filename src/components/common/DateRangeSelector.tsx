@@ -265,9 +265,9 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
     setModalVisible(false);
   };
 
-  // Days grid generator
-  const getDaysGrid = (yr: number, mo: number) => {
-    const firstDayIndex = new Date(yr, mo, 1).getDay(); // 0 is Sun
+  // Weeks generator: chunks month days into strict 7-day rows [[d, d, d, d, d, d, d], ...]
+  const getWeeksGrid = (yr: number, mo: number): (number | null)[][] => {
+    const firstDayIndex = new Date(yr, mo, 1).getDay(); // 0 is Sun, 6 is Sat
     const totalDays = new Date(yr, mo + 1, 0).getDate();
     const days: (number | null)[] = [];
     for (let i = 0; i < firstDayIndex; i++) {
@@ -276,10 +276,18 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
     for (let d = 1; d <= totalDays; d++) {
       days.push(d);
     }
-    return days;
+    // Pad to complete the final 7-day week
+    while (days.length % 7 !== 0) {
+      days.push(null);
+    }
+    const weeks: (number | null)[][] = [];
+    for (let i = 0; i < days.length; i += 7) {
+      weeks.push(days.slice(i, i + 7));
+    }
+    return weeks;
   };
 
-  const daysGrid = getDaysGrid(calYear, calMonth);
+  const weeksGrid = useMemo(() => getWeeksGrid(calYear, calMonth), [calYear, calMonth]);
   const weekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
   // Handle Day tap in Range Tab
@@ -576,62 +584,67 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                 {/* Weekdays header */}
                 <View style={styles.weekdayRow}>
                   {weekdays.map((w) => (
-                    <Text key={w} style={styles.weekdayText}>
-                      {w}
-                    </Text>
+                    <View key={w} style={styles.dayCol}>
+                      <Text style={styles.weekdayText}>{w}</Text>
+                    </View>
                   ))}
                 </View>
 
-                {/* Day numbers grid with range highlight */}
-                <View style={styles.daysGrid}>
-                  {daysGrid.map((d, idx) => {
-                    if (d === null) {
-                      return <View key={`empty-${idx}`} style={styles.dayCellEmpty} />;
-                    }
-                    const pad = (n: number) => String(n).padStart(2, "0");
-                    const dateStr = `${calYear}-${pad(calMonth + 1)}-${pad(d)}`;
+                {/* Day numbers grid with range highlight (strict 7-day rows) */}
+                <View style={styles.calendarBody}>
+                  {weeksGrid.map((week, wIdx) => (
+                    <View key={`range-week-${wIdx}`} style={styles.weekRow}>
+                      {week.map((d, colIdx) => {
+                        if (d === null) {
+                          return <View key={`empty-${wIdx}-${colIdx}`} style={styles.dayCol} />;
+                        }
+                        const pad = (n: number) => String(n).padStart(2, "0");
+                        const dateStr = `${calYear}-${pad(calMonth + 1)}-${pad(d)}`;
 
-                    const isStart = rangeFromDate === dateStr;
-                    const isEnd = rangeToDate === dateStr;
-                    const isBetween =
-                      Boolean(rangeFromDate && rangeToDate) &&
-                      dateStr > rangeFromDate &&
-                      dateStr < rangeToDate;
+                        const isStart = rangeFromDate === dateStr;
+                        const isEnd = rangeToDate === dateStr;
+                        const isBetween =
+                          Boolean(rangeFromDate && rangeToDate) &&
+                          dateStr > rangeFromDate &&
+                          dateStr < rangeToDate;
 
-                    const now = new Date();
-                    const isFuture =
-                      calYear > now.getFullYear() ||
-                      (calYear === now.getFullYear() && calMonth > now.getMonth()) ||
-                      (calYear === now.getFullYear() &&
-                        calMonth === now.getMonth() &&
-                        d > now.getDate());
+                        const now = new Date();
+                        const isFuture =
+                          calYear > now.getFullYear() ||
+                          (calYear === now.getFullYear() && calMonth > now.getMonth()) ||
+                          (calYear === now.getFullYear() &&
+                            calMonth === now.getMonth() &&
+                            d > now.getDate());
 
-                    return (
-                      <TouchableOpacity
-                        key={`range-day-${d}`}
-                        style={[
-                          styles.dayCell,
-                          (isStart || isEnd) && styles.dayCellEndpoint,
-                          isBetween && styles.dayCellBetween,
-                          isFuture && styles.dayCellDisabled,
-                        ]}
-                        disabled={isFuture}
-                        onPress={() => handleDayTapInRange(d)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            styles.dayNumberText,
-                            (isStart || isEnd) && styles.dayNumberTextEndpoint,
-                            isBetween && styles.dayNumberTextBetween,
-                            isFuture && styles.dayNumberTextDisabled,
-                          ]}
-                        >
-                          {d}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                        return (
+                          <View key={`range-col-${d}`} style={styles.dayCol}>
+                            <TouchableOpacity
+                              style={[
+                                styles.dayCell,
+                                (isStart || isEnd) && styles.dayCellEndpoint,
+                                isBetween && styles.dayCellBetween,
+                                isFuture && styles.dayCellDisabled,
+                              ]}
+                              disabled={isFuture}
+                              onPress={() => handleDayTapInRange(d)}
+                              activeOpacity={0.7}
+                            >
+                              <Text
+                                style={[
+                                  styles.dayNumberText,
+                                  (isStart || isEnd) && styles.dayNumberTextEndpoint,
+                                  isBetween && styles.dayNumberTextBetween,
+                                  isFuture && styles.dayNumberTextDisabled,
+                                ]}
+                              >
+                                {d}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ))}
                 </View>
 
                 {/* Apply Range Button */}
@@ -704,54 +717,59 @@ export const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                 {/* Weekday headers */}
                 <View style={styles.weekdayRow}>
                   {weekdays.map((w) => (
-                    <Text key={w} style={styles.weekdayText}>
-                      {w}
-                    </Text>
+                    <View key={w} style={styles.dayCol}>
+                      <Text style={styles.weekdayText}>{w}</Text>
+                    </View>
                   ))}
                 </View>
 
-                {/* Day numbers grid */}
-                <View style={styles.daysGrid}>
-                  {daysGrid.map((d, idx) => {
-                    if (d === null) {
-                      return <View key={`empty-${idx}`} style={styles.dayCellEmpty} />;
-                    }
-                    const pad = (n: number) => String(n).padStart(2, "0");
-                    const dateStr = `${calYear}-${pad(calMonth + 1)}-${pad(d)}`;
-                    const isSelected = selectedSingleDay === dateStr;
+                {/* Day numbers grid (strict 7-day rows) */}
+                <View style={styles.calendarBody}>
+                  {weeksGrid.map((week, wIdx) => (
+                    <View key={`day-week-${wIdx}`} style={styles.weekRow}>
+                      {week.map((d, colIdx) => {
+                        if (d === null) {
+                          return <View key={`empty-day-${wIdx}-${colIdx}`} style={styles.dayCol} />;
+                        }
+                        const pad = (n: number) => String(n).padStart(2, "0");
+                        const dateStr = `${calYear}-${pad(calMonth + 1)}-${pad(d)}`;
+                        const isSelected = selectedSingleDay === dateStr;
 
-                    const now = new Date();
-                    const isFuture =
-                      calYear > now.getFullYear() ||
-                      (calYear === now.getFullYear() && calMonth > now.getMonth()) ||
-                      (calYear === now.getFullYear() &&
-                        calMonth === now.getMonth() &&
-                        d > now.getDate());
+                        const now = new Date();
+                        const isFuture =
+                          calYear > now.getFullYear() ||
+                          (calYear === now.getFullYear() && calMonth > now.getMonth()) ||
+                          (calYear === now.getFullYear() &&
+                            calMonth === now.getMonth() &&
+                            d > now.getDate());
 
-                    return (
-                      <TouchableOpacity
-                        key={`day-${d}`}
-                        style={[
-                          styles.dayCell,
-                          isSelected && styles.dayCellEndpoint,
-                          isFuture && styles.dayCellDisabled,
-                        ]}
-                        disabled={isFuture}
-                        onPress={() => setSelectedSingleDay(dateStr)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            styles.dayNumberText,
-                            isSelected && styles.dayNumberTextEndpoint,
-                            isFuture && styles.dayNumberTextDisabled,
-                          ]}
-                        >
-                          {d}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                        return (
+                          <View key={`day-col-${d}`} style={styles.dayCol}>
+                            <TouchableOpacity
+                              style={[
+                                styles.dayCell,
+                                isSelected && styles.dayCellEndpoint,
+                                isFuture && styles.dayCellDisabled,
+                              ]}
+                              disabled={isFuture}
+                              onPress={() => setSelectedSingleDay(dateStr)}
+                              activeOpacity={0.7}
+                            >
+                              <Text
+                                style={[
+                                  styles.dayNumberText,
+                                  isSelected && styles.dayNumberTextEndpoint,
+                                  isFuture && styles.dayNumberTextDisabled,
+                                ]}
+                              >
+                                {d}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ))}
                 </View>
 
                 {/* Apply Day Button */}
@@ -1007,36 +1025,36 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0F172A",
   },
-  // Weekday Row
+  // Weekday Row (Strict 7-day columns)
   weekdayRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-    paddingHorizontal: 4,
+    alignItems: "center",
+    marginBottom: 6,
   },
   weekdayText: {
-    width: 38,
     textAlign: "center",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#64748B",
   },
-  // Days Grid
-  daysGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    paddingHorizontal: 4,
+  // Calendar Body & Week Rows (Guaranteed 7-day alignment)
+  calendarBody: {
+    width: "100%",
   },
-  dayCellEmpty: {
-    width: 38,
+  weekRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 2,
+  },
+  dayCol: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     height: 38,
-    marginVertical: 3,
   },
   dayCell: {
-    width: 38,
-    height: 38,
-    marginVertical: 3,
+    width: 36,
+    height: 36,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
@@ -1048,7 +1066,7 @@ const styles = StyleSheet.create({
   },
   dayCellBetween: {
     backgroundColor: "#DBEAFE",
-    borderRadius: 4,
+    borderRadius: 6,
   },
   dayCellDisabled: {
     opacity: 0.3,

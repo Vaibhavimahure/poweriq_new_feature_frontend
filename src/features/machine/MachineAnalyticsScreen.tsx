@@ -131,6 +131,12 @@ const DEFAULT_MACHINES: MachineOption[] = [
     panelType: "MCC",
     location: "Utility Room",
   },
+  {
+    did: "E_BA_Z_B_R_P0002_D3",
+    name: "Flat line",
+    panelType: "MCC",
+    location: "Flat Drip",
+  },
 ];
 
 interface MachineAnalyticsScreenProps {
@@ -229,30 +235,32 @@ export const MachineAnalyticsScreen: React.FC<MachineAnalyticsScreenProps> = ({
         const plantMachines = await fetchAllPlantMachines();
         if (!alive) return;
 
-        if (Array.isArray(plantMachines) && plantMachines.length > 0) {
-          setMachinesList(plantMachines);
-          setSelectedDid((prev) => (plantMachines.some((m) => m.did === prev) ? prev : plantMachines[0].did));
-          return;
+        let mergedList: MachineOption[] = Array.isArray(plantMachines) ? [...plantMachines] : [];
+
+        try {
+          const favRes = await fetchFavoriteOptions();
+          if (alive && Array.isArray(favRes) && favRes.length > 0) {
+            const mapped: MachineOption[] = favRes.map((m: any) => ({
+              did: m.did || m.deviceId || m.id,
+              name: m.label || m.machineName || m.panelName || m.did,
+              panelType: m.panelType || "MCC",
+              location: m.location || "Utility Area",
+            }));
+            const existingDids = new Set(mergedList.map((x) => x.did));
+            mapped.forEach((m) => {
+              if (m.did && !existingDids.has(m.did)) {
+                mergedList.push(m);
+                existingDids.add(m.did);
+              }
+            });
+          }
+        } catch {
+          // ignore favorite options failure
         }
 
-        const favRes = await fetchFavoriteOptions();
-        if (!alive) return;
-
-        if (Array.isArray(favRes) && favRes.length > 0) {
-          const mapped: MachineOption[] = favRes.map((m: any) => ({
-            did: m.did || m.deviceId || m.id,
-            name: m.label || m.machineName || m.panelName || m.did,
-            panelType: m.panelType || "MCC",
-            location: m.location || "Utility Area",
-          }));
-          setMachinesList((prev) => {
-            const set = new Set(mapped.map((x) => x.did));
-            const merged = [...mapped];
-            prev.forEach((p) => {
-              if (!set.has(p.did)) merged.push(p);
-            });
-            return merged;
-          });
+        if (mergedList.length > 0) {
+          setMachinesList(mergedList);
+          setSelectedDid((prev) => (mergedList.some((m) => m.did === prev) ? prev : mergedList[0].did));
         }
       } catch (err) {
         console.warn("[MachineAnalytics] Error loading plant machines:", err);

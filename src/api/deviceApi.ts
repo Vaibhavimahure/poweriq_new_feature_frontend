@@ -77,13 +77,15 @@ export async function fetchAllPlantMachines(forceRefresh = false): Promise<Machi
         let filteredForms = forms;
         if (extractedMccDids.length > 0) {
           const didSet = new Set(extractedMccDids);
-          filteredForms = forms.filter((f: any) => didSet.has(String(f?.did || "").trim()));
+          const priorityForms = forms.filter((f: any) => didSet.has(String(f?.did || "").trim()));
+          const remainingForms = forms.filter((f: any) => !didSet.has(String(f?.did || "").trim()));
           const idx = new Map(extractedMccDids.map((d: string, i: number) => [d, i]));
-          filteredForms.sort((a: any, b: any) => {
+          priorityForms.sort((a: any, b: any) => {
             const ia = idx.get(String(a?.did || "").trim());
             const ib = idx.get(String(b?.did || "").trim());
             return (ia ?? 9999) - (ib ?? 9999);
           });
+          filteredForms = [...priorityForms, ...remainingForms];
         }
 
         filteredForms.forEach((f: any) => {

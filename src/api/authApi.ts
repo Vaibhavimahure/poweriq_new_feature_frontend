@@ -3,7 +3,7 @@
  * ----------------------------------------------------------------------------
  * Authentication API — DEPLOYED AUTH backend ONLY.
  *
- * Base: https://dev.esmbackend.click/api/auth
+ * Base: https://dev.esm.co.in/api/auth
  * Login: POST /api/v1/auth/login
  *
  * Confirmed login response structure (from authController.js):
@@ -33,7 +33,7 @@ import { CONFIG } from "../config/constants";
 export const authApi = {
   /**
    * Login with email + password.
-   * Full endpoint: POST https://dev.esmbackend.click/api/auth/api/v1/auth/login
+   * Full endpoint: POST https://dev.esm.co.in/api/auth/api/v1/auth/login
    */
   login: async (credentials: LoginRequest): Promise<LoginResponse> => {
     console.log("[AuthAPI] POST /api/v1/auth/login for:", credentials.email);
@@ -63,7 +63,7 @@ export const authApi = {
 
   /**
    * Refresh access token.
-   * Full endpoint: POST https://dev.esmbackend.click/api/auth/api/v1/auth/refresh-token
+   * Full endpoint: POST https://dev.esm.co.in/api/auth/api/v1/auth/refresh-token
    */
   refreshToken: async (token: string): Promise<RefreshTokenResponse> => {
     const response = await authClient.post<RefreshTokenResponse>(
@@ -75,7 +75,7 @@ export const authApi = {
 
   /**
    * Fetch all users from deployed auth service.
-   * Full endpoint: GET https://dev.esmbackend.click/api/auth/api/v1/user/getAllUsers
+   * Full endpoint: GET https://dev.esm.co.in/api/auth/api/v1/user/getAllUsers
    * Accepts optional companyId. If omitted, auth server filters by authenticated user's company.
    */
   getAllUsers: async (companyId?: string): Promise<any[]> => {
@@ -90,9 +90,9 @@ export const authApi = {
         headers.Authorization = `Bearer ${token}`;
       }
 
-      // 1. Primary: fetch from Web Dashboard Auth directory (dev.esmbackend.click/api/auth)
+      // 1. Primary: fetch from Web Dashboard Auth directory (dev.esm.co.in/api/auth)
       try {
-        const webAuthUrl = `${(CONFIG.WEB_AUTH_BASE_URL || "https://dev.esmbackend.click/api/auth").replace(/\/+$/, "")}/api/v1/user/getAllUsers`;
+        const webAuthUrl = `${(CONFIG.WEB_AUTH_BASE_URL || "https://dev.esm.co.in/api/auth").replace(/\/+$/, "")}/api/v1/user/getAllUsers`;
         const response = await axios.get(webAuthUrl, {
           params,
           headers,

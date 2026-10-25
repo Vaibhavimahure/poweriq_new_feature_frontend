@@ -108,4 +108,19 @@ export async function fetchSecMachineOverview(params: {
   return res.data?.data || res.data || {};
 }
 
+export async function fetchSecProductTargets(params: {
+  productionDateFrom?: string;
+  productionDateTo?: string;
+  forceRefresh?: boolean;
+} = {}): Promise<any> {
+  const url = joinUrl(SERVICE_BASES.KPI, "/sec-product-targets");
+  const queryParams: Record<string, any> = {};
+  if (params.productionDateFrom) queryParams.productionDateFrom = params.productionDateFrom;
+  if (params.productionDateTo) queryParams.productionDateTo = params.productionDateTo;
+  if (params.forceRefresh) queryParams._secFresh = Date.now();
 
+  const res = await powerIqClient.get(url, {
+    params: Object.keys(queryParams).length ? queryParams : undefined,
+  });
+  return res.data?.data || res.data || {};
+}

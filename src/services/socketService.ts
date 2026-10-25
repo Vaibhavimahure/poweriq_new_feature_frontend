@@ -3,7 +3,7 @@
  * ----------------------------------------------------------------------------
  * Socket.IO client — connects to the DEPLOYED alert backend.
  *
- * Socket host: https://dev.esmbackend.click           (SOCKET_HOST_URL)
+ * Socket host: https://dev.esm.co.in           (SOCKET_HOST_URL)
  * Socket path: /api/alert/socket.io                  (SOCKET_PATH)
  *
  * Auth mechanism (confirmed from backend index.js):

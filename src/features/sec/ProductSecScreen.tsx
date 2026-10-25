@@ -8,11 +8,16 @@
  *   - Clean Search Bar (search products by name or ID)
  *   - All products rendered as comprehensive expandable cards
  *   - Products with active data for the selected date range sorted to the top
- *   - Each product card features:
- *     - Product Name & ID
- *     - Individual [ Logs ] button to view/add production logs
- *     - Chevron expand/collapse toggle
- *     - 7 KPI metric tiles (Primary Qty, Secondary Qty, Wastage Qty, Total Energy, SEC, Total Cost, Cost/unit)
+ *   - Each expanded product card features EXACTLY 8 metric tiles in exact order:
+ *     1. Target Production
+ *     2. Target Cost / {unit}
+ *     3. Energy Consumption
+ *     4. Production Runtime (Primary Machine Efficient Run Time 'full_load')
+ *     5. Primary Production
+ *     6. Secondary Production
+ *     7. Wastage
+ *     8. Machine Cost / {unit}
+ *   - Dedicated Logs button to view/add production logs
  * ----------------------------------------------------------------------------
  */
 
@@ -25,25 +30,43 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
+  Alert,
 } from "react-native";
 import {
   Box,
   Zap,
   BarChart2,
   Coins,
-  Calculator,
   ChevronDown,
   ChevronUp,
   Search,
   X,
   ClipboardList,
+  Target,
+  Clock,
   Info,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 import {
   fetchSecOverview,
   fetchSecProductConfigs,
+  fetchSecProductHistory,
+  fetchSecProductTargets,
 } from "../../api/secApi";
+import { fetchFavoriteMachines } from "../../api/kpiApi";
+import {
+  getPrimaryDevices,
+  getPrimaryDids,
+  parseEfficientRunTimeHours,
+  formatRuntimeHours,
+  formatNum,
+  metricFromSummary,
+  mapWithConcurrency,
+  getProductTargetProduction,
+  getProductTargetCost,
+  formatTargetProduction,
+  formatTargetCost,
+} from "../../utils/secUtils";
 import { CONFIG } from "../../config/constants";
 import { CardSkeleton } from "../../components/common/LoadingSkeleton";
 import { ErrorCard } from "../../components/common/ErrorCard";
@@ -58,11 +81,14 @@ export const ProductSecScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Products state
+  // Products and metrics state
   const [products, setProducts] = useState<any[]>([]);
+  const [productMetrics, setProductMetrics] = useState<Record<string, any>>({});
+  const [productTargets, setProductTargets] = useState<Record<string, any>>({});
+  const [machineRuntimes, setMachineRuntimes] = useState<Record<string, number | null>>({});
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Map of collapsed/expanded product cards (default: all expanded or first 5 expanded)
+  // Map of collapsed/expanded product cards (default: all expanded)
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
 
   // Global Date Filter Context
@@ -74,36 +100,190 @@ export const ProductSecScreen: React.FC = () => {
     productionTimeEnabled,
     handleProductionTimeToggle,
     resolvedDateRange,
+    activeFromSec,
+    activeToSec,
   } = useDateFilter();
 
-  // Data Fetching
-  const loadData = useCallback(async (force = false) => {
-    try {
-      if (!force) setLoading(true);
-      setError(null);
+  // Data Fetching: Products list, Product History metrics, and Machine Runtimes
+  const loadData = useCallback(
+    async (force = false) => {
+      try {
+        if (!force) setLoading(true);
+        setError(null);
 
-      const params: any = {};
-      if (resolvedDateRange?.from && resolvedDateRange?.to) {
-        params.productionDateFrom = resolvedDateRange.from;
-        params.productionDateTo = resolvedDateRange.to;
+        const productionDateFrom = resolvedDateRange?.from || "";
+        const productionDateTo = resolvedDateRange?.to || "";
+        const queryMode = customRange?.label ? "custom" : "today";
+
+        // 1. Fetch configured products list & favorite machine cards in parallel
+        const [overviewRes, favRes] = await Promise.allSettled([
+          fetchSecOverview(force, {
+            productionDateFrom: productionDateFrom || undefined,
+            productionDateTo: productionDateTo || undefined,
+          }),
+          fetchFavoriteMachines({
+            from: activeFromSec,
+            to: activeToSec,
+            mode: queryMode,
+          }),
+        ]);
+
+        let configuredProducts: any[] = [];
+        if (overviewRes.status === "fulfilled" && overviewRes.value) {
+          configuredProducts = Array.isArray(overviewRes.value?.products)
+            ? overviewRes.value.products
+            : [];
+        }
+
+        // Fallback to sec-config if overview products empty
+        if (!configuredProducts.length) {
+          try {
+            configuredProducts = await fetchSecProductConfigs();
+          } catch {
+            configuredProducts = [];
+          }
+        }
+
+        setProducts(configuredProducts);
+
+        // 2. Parse initial runtime map from favorite cards
+        const runtimeMap: Record<string, number | null> = {};
+        if (favRes.status === "fulfilled" && favRes.value) {
+          const val = favRes.value;
+          const favList = Array.isArray(val?.favorites)
+            ? val.favorites
+            : Array.isArray(val?.cards)
+            ? val.cards
+            : Array.isArray(val?.data)
+            ? val.data
+            : Array.isArray(val)
+            ? val
+            : [];
+
+          favList.forEach((fav: any) => {
+            const didKey = String(fav?.did || fav?.deviceId || fav?.id || "").trim().toUpperCase();
+            if (!didKey) return;
+            const rt = parseEfficientRunTimeHours(fav);
+            if (rt !== null) {
+              runtimeMap[didKey] = rt;
+            }
+          });
+        }
+
+        // 3. Collect all unique Primary Machine DIDs across configured products
+        const allPrimaryDids = new Set<string>();
+        configuredProducts.forEach((p) => {
+          const dids = getPrimaryDids(p);
+          dids.forEach((did) => allPrimaryDids.add(did));
+        });
+
+        // 4. For any Primary Machine DIDs not present in favorite cards, fetch their runtime
+        const missingDids = Array.from(allPrimaryDids).filter(
+          (did) => runtimeMap[did] === undefined
+        );
+
+        if (missingDids.length > 0) {
+          await mapWithConcurrency(missingDids, 5, async (did) => {
+            try {
+              const res = await fetchFavoriteMachines({
+                did,
+                from: activeFromSec,
+                to: activeToSec,
+                mode: queryMode,
+              });
+              const card =
+                res?.favorites?.[0] ||
+                res?.cards?.[0] ||
+                (Array.isArray(res?.data) ? res.data[0] : res?.data) ||
+                res;
+              const rt = parseEfficientRunTimeHours(card);
+              runtimeMap[did] = rt;
+            } catch {
+              runtimeMap[did] = null;
+            }
+          });
+        }
+
+        setMachineRuntimes(runtimeMap);
+
+        // 5. Fetch date-range summary metrics for each product via history API
+        // Matches Web Dashboard index.jsx mapWithConcurrency(products, 8, ...)
+        if (configuredProducts.length > 0 && productionDateFrom && productionDateTo) {
+          const metricsEntries = await mapWithConcurrency(
+            configuredProducts,
+            8,
+            async (product) => {
+              const pId = String(product?.productId || product?.id || product?._id || "").trim();
+              if (!pId) return [pId, null] as const;
+
+              try {
+                const history = await fetchSecProductHistory(pId, {
+                  page: 1,
+                  limit: 1,
+                  productionDateFrom,
+                  productionDateTo,
+                });
+                const summary = history?.summary || history?.data?.summary;
+                const rows = Array.isArray(history?.rows)
+                  ? history.rows
+                  : Array.isArray(history?.data?.rows)
+                  ? history.data.rows
+                  : [];
+                const parsedMetric = metricFromSummary(summary, rows[0] || null);
+                return [pId, parsedMetric] as const;
+              } catch {
+                // Fall back to embedded summary if individual history fetch fails
+                const fallback = metricFromSummary(product?.summary, null);
+                return [pId, fallback] as const;
+              }
+            }
+          );
+
+          setProductMetrics(Object.fromEntries(metricsEntries));
+        } else {
+          // If no date range, map directly from embedded product summary
+          const directEntries = configuredProducts.map((p) => {
+            const pId = String(p?.productId || p?.id || p?._id || "").trim();
+            return [pId, metricFromSummary(p?.summary, null)] as const;
+          });
+          setProductMetrics(Object.fromEntries(directEntries));
+        }
+
+        // 6. Fetch date-range dynamic targets for each product
+        // Matches Web Dashboard index.jsx fetchSecProductTargets({ productionDateFrom, productionDateTo })
+        if (configuredProducts.length > 0 && productionDateFrom && productionDateTo) {
+          try {
+            const targetsRes = await fetchSecProductTargets({
+              productionDateFrom,
+              productionDateTo,
+              forceRefresh: force,
+            });
+            const targetsData =
+              targetsRes?.targets && typeof targetsRes.targets === "object"
+                ? targetsRes.targets
+                : targetsRes?.data?.targets && typeof targetsRes.data.targets === "object"
+                ? targetsRes.data.targets
+                : targetsRes && typeof targetsRes === "object"
+                ? targetsRes
+                : {};
+            setProductTargets(targetsData);
+          } catch (tErr: any) {
+            console.warn("[ProductSecScreen] fetchSecProductTargets failed:", tErr?.message);
+            setProductTargets({});
+          }
+        } else {
+          setProductTargets({});
+        }
+      } catch (err: any) {
+        console.warn("[ProductSecScreen] Load failed:", err?.message);
+        setError("Failed to load Product SEC data. Please check connection.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-
-      const overview = await fetchSecOverview(force, params);
-      let list: any[] = Array.isArray(overview?.products) ? overview.products : [];
-
-      if (!list.length) {
-        list = await fetchSecProductConfigs();
-      }
-
-      setProducts(list);
-    } catch (err: any) {
-      console.warn("[ProductSecScreen] Load failed:", err?.message);
-      setError("Failed to load Product SEC data. Please check connection.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [resolvedDateRange?.from, resolvedDateRange?.to]);
+    },
+    [activeFromSec, activeToSec, customRange?.label, resolvedDateRange?.from, resolvedDateRange?.to]
+  );
 
   useEffect(() => {
     loadData();
@@ -114,29 +294,17 @@ export const ProductSecScreen: React.FC = () => {
     loadData(true);
   }, [loadData]);
 
-  // Number Formatters
-  const formatNum = (v: any, decimals = 2) => {
-    if (v === null || v === undefined) return "—";
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    return new Intl.NumberFormat("en-IN", {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    }).format(n);
-  };
-
   // Helper to determine if a product has active logs or energy data for the period
-  const hasActiveData = (p: any) => {
-    const s = p?.summary || {};
-    const logs = Number(s?.logCount || p?.logCount || 0);
-    const sec = s?.secPerProductionUnit ?? s?.sec ?? p?.secPerProductionUnit ?? p?.sec;
-    const energy = Number(s?.tec ?? s?.totalEnergy ?? p?.totalEnergy ?? 0);
+  const hasActiveData = (p: any, m: any) => {
+    const s = m || p?.summary || {};
+    const logs = Number(s?.logCount || 0);
+    const sec = s?.secPerProductionUnit ?? s?.sec;
+    const energy = Number(s?.tec ?? s?.totalEnergy ?? 0);
     const qty = Number(
       s?.primaryProductionQtyEntered ??
-        s?.grossProductionQty ??
-        s?.qtyProduced ??
-        p?.primaryProductionQtyEntered ??
-        0
+      s?.grossProductionQty ??
+      s?.qtyProduced ??
+      0
     );
     return logs > 0 || sec != null || energy > 0 || qty > 0;
   };
@@ -155,18 +323,29 @@ export const ProductSecScreen: React.FC = () => {
     });
 
     matched.sort((a, b) => {
-      const aData = hasActiveData(a) ? 1 : 0;
-      const bData = hasActiveData(b) ? 1 : 0;
-      if (aData !== bData) {
-        return bData - aData; // Products with data on top
+      const aId = String(a.productId || a._id || "");
+      const bId = String(b.productId || b._id || "");
+      const aMetric = productMetrics[aId];
+      const bMetric = productMetrics[bId];
+
+      const aDate = new Date(aMetric?.productionTo || aMetric?.productionDate || 0).getTime();
+      const bDate = new Date(bMetric?.productionTo || bMetric?.productionDate || 0).getTime();
+      const aTime = Number.isFinite(aDate) ? aDate : 0;
+      const bTime = Number.isFinite(bDate) ? bDate : 0;
+
+      // 1. Web Dashboard Latest Production First: latest production date/timestamp descending
+      if (bTime !== aTime) {
+        return bTime - aTime;
       }
+
+      // 2. Web Dashboard tie-breaker: alphabetical by product name
       const aName = String(a.name || a.productName || "");
       const bName = String(b.name || b.productName || "");
-      return aName.localeCompare(bName);
+      return aName.localeCompare(bName, undefined, { sensitivity: "base", numeric: true });
     });
 
     return matched;
-  }, [products, searchQuery]);
+  }, [products, productMetrics, searchQuery]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => ({
@@ -176,7 +355,23 @@ export const ProductSecScreen: React.FC = () => {
   };
 
   const isCardExpanded = (id: string) => {
-    return expandedIds[id] !== false; // Default true
+    return expandedIds[id] !== false; // Default true (expanded)
+  };
+
+  // Breakdown alert for multiple primary machines on a product
+  const showMultipleMachineBreakdown = (productName: string, primaryDevices: any[]) => {
+    const lines = primaryDevices.map((d: any) => {
+      const did = String(d?.did || "").trim().toUpperCase();
+      const name = String(d?.name || d?.panelName || d?.label || did).trim();
+      const hrs = machineRuntimes[did];
+      return `• ${name} (${did}): ${formatRuntimeHours(hrs)}`;
+    });
+
+    Alert.alert(
+      `Primary Machines Runtime`,
+      `Product: ${productName}\n\n${lines.join("\n")}`,
+      [{ text: "Close", style: "cancel" }]
+    );
   };
 
   return (
@@ -194,7 +389,7 @@ export const ProductSecScreen: React.FC = () => {
         onProductionTimeToggle={handleProductionTimeToggle}
       />
 
-      {/* 3. Search Bar Header (No filter up there - just clean search) */}
+      {/* 3. Search Bar Header */}
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
           <Search size={18} color="#64748B" style={styles.searchIcon} />
@@ -238,9 +433,9 @@ export const ProductSecScreen: React.FC = () => {
       >
         {loading && !refreshing ? (
           <View style={{ padding: 16 }}>
-            <CardSkeleton height={120} />
-            <CardSkeleton height={120} />
-            <CardSkeleton height={120} />
+            <CardSkeleton height={140} />
+            <CardSkeleton height={140} />
+            <CardSkeleton height={140} />
           </View>
         ) : error ? (
           <ErrorCard title="Error" message={error} onRetry={() => loadData(true)} />
@@ -256,32 +451,44 @@ export const ProductSecScreen: React.FC = () => {
           </View>
         ) : (
           filteredProducts.map((p, index) => {
-            const pId = String(p?.productId || p?._id || `prod_${index}`);
+            const pId = String(p?.productId || p?.id || p?._id || `prod_${index}`).trim();
             const pName = String(p?.name || p?.productName || pId);
-            const pSize = String(p?.size ?? "—");
-            const primaryUnit = p?.primaryProductUnit || p?.productUnit || "kg";
-            const secondaryUnit = p?.secondaryProductUnit || "mts";
+            const pSize = String((p?.size || p?.productSize) ?? "—");
+            const primaryUnit = String(p?.primaryProductUnit || p?.productUnit || "pcs").trim();
+            const secondaryUnit = String(p?.secondaryProductUnit || p?.primaryProductUnit || "pcs").trim();
 
-            const summary = p?.summary || (p?.secPerProductionUnit != null ? p : {});
-            const hasData = hasActiveData(p);
+            const metric = productMetrics[pId] || metricFromSummary(p?.summary, null);
             const expanded = isCardExpanded(pId);
 
-            const primaryQty =
-              summary.primaryProductionQtyEntered ??
-              summary.productionQtyEntered ??
-              summary.qtyProduced ??
-              null;
-            const secondaryQty = summary.secondaryProductionQtyEntered ?? null;
-            const wastageQty = summary.wastageQty ?? null;
-            const tec = summary.tec ?? summary.totalEnergy ?? null;
-            const sec = summary.secPerProductionUnit ?? summary.sec ?? null;
-            const totalCost = summary.totalCost ?? null;
-            const costPerUnit =
-              summary.costPerProductionUnit ??
-              summary.costPerUnit ??
-              (primaryQty && totalCost && Number(primaryQty) > 0
-                ? Number(totalCost) / Number(primaryQty)
-                : null);
+            // 8 Metrics Data Values
+            const primaryQty = metric?.primaryProductionQtyEntered ?? null;
+            const secondaryQty = metric?.secondaryProductionQtyEntered ?? null;
+            const wastageQty = metric?.wastageQty ?? null;
+            const tec = metric?.tec ?? metric?.totalEnergy ?? null;
+            const costPerUnit = metric?.costPerProductionUnit ?? metric?.costPerUnit ?? null;
+
+            // Target Metrics (underlying raw values preserve null when unconfigured)
+            const targetObj = productTargets[pId] || null;
+            const rawTargetProd = getProductTargetProduction(p, metric, targetObj);
+            const rawTargetCost = getProductTargetCost(p, metric, targetObj);
+
+            // Production Runtime from configured Primary Machine(s)
+            const primaryDevices = getPrimaryDevices(p);
+            let runtimeFormatted = "—";
+            let runtimeSubtitle = "No primary machine";
+            let hasMultipleMachines = false;
+
+            if (primaryDevices.length === 1) {
+              const did = String(primaryDevices[0].did).trim().toUpperCase();
+              const mName = String(primaryDevices[0].name || primaryDevices[0].panelName || did).trim();
+              const hrs = machineRuntimes[did];
+              runtimeFormatted = formatRuntimeHours(hrs);
+              runtimeSubtitle = mName || did;
+            } else if (primaryDevices.length > 1) {
+              hasMultipleMachines = true;
+              runtimeFormatted = "—";
+              runtimeSubtitle = `${primaryDevices.length} machines (Tap for info)`;
+            }
 
             return (
               <View key={pId} style={styles.productCardContainer}>
@@ -338,37 +545,122 @@ export const ProductSecScreen: React.FC = () => {
                   </View>
                 </View>
 
-                {/* Expanded: 7 Metric Tiles Grid */}
+                {/* Expanded: EXACTLY 8 Metric Tiles Grid (2 columns x 4 rows) */}
                 {expanded && (
                   <View style={styles.metricsGrid}>
-                    {/* Row 1: Primary Qty & Secondary Qty */}
+                    {/* Row 1: Target Production | Target Cost / unit */}
                     <View style={styles.metricRow}>
-                      {/* 1. Primary Production Quantity */}
-                      <View style={[styles.metricCard, { backgroundColor: "#F0FDF4" }]}>
-                        <View style={[styles.metricIconBox, { backgroundColor: "#DCFCE7" }]}>
-                          <Zap size={20} color="#22C55E" />
+                      {/* Tile 1: Target Production */}
+                      <View style={[styles.metricCard, styles.cardGray]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxGray]}>
+                          <Target size={18} color="#64748B" />
                         </View>
                         <View style={styles.metricContent}>
-                          <Text style={styles.metricLabel} numberOfLines={2}>
-                            Primary Production Quantity
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Target Production
                           </Text>
-                          <Text style={styles.metricValue}>
+                          <Text style={[styles.metricValue, { color: "#334155" }]}>
+                            {formatTargetProduction(rawTargetProd)}
+                          </Text>
+                          <Text style={styles.metricUnit}>{primaryUnit}</Text>
+                        </View>
+                      </View>
+
+                      {/* Tile 2: Target Cost / unit */}
+                      <View style={[styles.metricCard, styles.cardPurple]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxPurple]}>
+                          <Coins size={18} color="#7C3AED" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Target Cost / {primaryUnit}
+                          </Text>
+                          <Text style={[styles.metricValue, { color: "#7C3AED" }]}>
+                            {formatTargetCost(rawTargetCost)}
+                          </Text>
+                          <Text style={styles.metricUnit}>/{primaryUnit}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Row 2: Energy Consumption | Production Runtime */}
+                    <View style={styles.metricRow}>
+                      {/* Tile 3: Energy Consumption */}
+                      <View style={[styles.metricCard, styles.cardBlue]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxBlue]}>
+                          <Zap size={18} color="#2563EB" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Energy Consumption
+                          </Text>
+                          <Text style={[styles.metricValue, { color: "#2563EB" }]}>
+                            {tec !== null ? formatNum(tec, 2) : "0.00"}
+                          </Text>
+                          <Text style={styles.metricUnit}>kWh</Text>
+                        </View>
+                      </View>
+
+                      {/* Tile 4: Production Runtime (Primary Machine Efficient Run Time) */}
+                      <TouchableOpacity
+                        activeOpacity={hasMultipleMachines ? 0.75 : 1}
+                        onPress={() => {
+                          if (hasMultipleMachines) {
+                            showMultipleMachineBreakdown(pName, primaryDevices);
+                          }
+                        }}
+                        style={[styles.metricCard, styles.cardGreen]}
+                      >
+                        <View style={[styles.metricIconBox, styles.iconBoxGreen]}>
+                          <Clock size={18} color="#16A34A" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <View style={styles.labelWithInfo}>
+                            <Text style={styles.metricLabel} numberOfLines={1}>
+                              Production Runtime
+                            </Text>
+                            {hasMultipleMachines && (
+                              <Info size={11} color="#16A34A" style={{ marginLeft: 3 }} />
+                            )}
+                          </View>
+                          <Text style={[styles.metricValue, { color: "#16A34A" }]}>
+                            {runtimeFormatted}
+                          </Text>
+                          <Text style={styles.metricUnit} numberOfLines={1}>
+                            {runtimeSubtitle}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Row 3: Primary Production | Secondary Production */}
+                    <View style={styles.metricRow}>
+                      {/* Tile 5: Primary Production */}
+                      <View style={[styles.metricCard, styles.cardGreen]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxGreen]}>
+                          <BarChart2 size={18} color="#16A34A" />
+                        </View>
+                        <View style={styles.metricContent}>
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Primary Production
+                          </Text>
+                          <Text style={[styles.metricValue, { color: "#16A34A" }]}>
                             {primaryQty !== null ? formatNum(primaryQty, 2) : "0.00"}
                           </Text>
                           <Text style={styles.metricUnit}>{primaryUnit}</Text>
                         </View>
                       </View>
 
-                      {/* 2. Secondary Production Quantity */}
-                      <View style={[styles.metricCard, { backgroundColor: "#EFF6FF" }]}>
-                        <View style={[styles.metricIconBox, { backgroundColor: "#DBEAFE" }]}>
-                          <BarChart2 size={20} color="#2563EB" />
+                      {/* Tile 6: Secondary Production */}
+                      <View style={[styles.metricCard, styles.cardGray]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxGray]}>
+                          <BarChart2 size={18} color="#475569" />
                         </View>
                         <View style={styles.metricContent}>
-                          <Text style={styles.metricLabel} numberOfLines={2}>
-                            Secondary Production Quantity
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Secondary Production
                           </Text>
-                          <Text style={styles.metricValue}>
+                          <Text style={[styles.metricValue, { color: "#475569" }]}>
                             {secondaryQty !== null ? formatNum(secondaryQty, 2) : "0.00"}
                           </Text>
                           <Text style={styles.metricUnit}>{secondaryUnit}</Text>
@@ -376,89 +668,38 @@ export const ProductSecScreen: React.FC = () => {
                       </View>
                     </View>
 
-                    {/* Row 2: Wastage Qty & Total Energy Consumption */}
+                    {/* Row 4: Wastage | Machine Cost / unit */}
                     <View style={styles.metricRow}>
-                      {/* 3. Wastage Quantity */}
-                      <View style={[styles.metricCard, { backgroundColor: "#FFF7ED" }]}>
-                        <View style={[styles.metricIconBox, { backgroundColor: "#FFEDD5" }]}>
-                          <Coins size={20} color="#EA580C" />
+                      {/* Tile 7: Wastage */}
+                      <View style={[styles.metricCard, styles.cardOrange]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxOrange]}>
+                          <Coins size={18} color="#EA580C" />
                         </View>
                         <View style={styles.metricContent}>
-                          <Text style={styles.metricLabel} numberOfLines={2}>
-                            Wastage Quantity
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Wastage
                           </Text>
-                          <Text style={styles.metricValue}>
+                          <Text style={[styles.metricValue, { color: "#EA580C" }]}>
                             {wastageQty !== null ? formatNum(wastageQty, 2) : "0.00"}
                           </Text>
                           <Text style={styles.metricUnit}>{primaryUnit}</Text>
                         </View>
                       </View>
 
-                      {/* 4. Total Energy Consumption */}
-                      <View style={[styles.metricCard, { backgroundColor: "#F0FDF4" }]}>
-                        <View style={[styles.metricIconBox, { backgroundColor: "#DCFCE7" }]}>
-                          <Zap size={20} color="#16A34A" />
+                      {/* Tile 8: Machine Cost / unit */}
+                      <View style={[styles.metricCard, styles.cardPink]}>
+                        <View style={[styles.metricIconBox, styles.iconBoxPink]}>
+                          <Coins size={18} color="#DB2777" />
                         </View>
                         <View style={styles.metricContent}>
-                          <Text style={styles.metricLabel} numberOfLines={2}>
-                            Total Energy Consumption
+                          <Text style={styles.metricLabel} numberOfLines={1}>
+                            Machine Cost / {primaryUnit}
                           </Text>
-                          <Text style={styles.metricValue}>
-                            {tec !== null ? formatNum(tec, 2) : "0.00"}
+                          <Text style={[styles.metricValue, { color: "#DB2777" }]}>
+                            {costPerUnit !== null ? formatTargetCost(costPerUnit) : "—"}
                           </Text>
-                          <Text style={styles.metricUnit}>kWh</Text>
+                          <Text style={styles.metricUnit}>/{primaryUnit}</Text>
                         </View>
-                      </View>
-                    </View>
-
-                    {/* Row 3: SEC / kg & Total Cost */}
-                    <View style={styles.metricRow}>
-                      {/* 5. SEC / unit */}
-                      <View style={[styles.metricCard, { backgroundColor: "#FAF5FF" }]}>
-                        <View style={[styles.metricIconBox, { backgroundColor: "#EDE9FE" }]}>
-                          <BarChart2 size={20} color="#2563EB" />
-                        </View>
-                        <View style={styles.metricContent}>
-                          <Text style={styles.metricLabel} numberOfLines={2}>
-                            SEC / {primaryUnit}
-                          </Text>
-                          <Text style={styles.metricValue}>
-                            {sec !== null ? formatNum(sec, 4) : "—"}
-                          </Text>
-                          <Text style={styles.metricUnit}>kWh / {primaryUnit}</Text>
-                        </View>
-                      </View>
-
-                      {/* 6. Total Cost */}
-                      <View style={[styles.metricCard, { backgroundColor: "#FFF7ED" }]}>
-                        <View style={[styles.metricIconBox, { backgroundColor: "#FFEDD5" }]}>
-                          <Coins size={20} color="#EA580C" />
-                        </View>
-                        <View style={styles.metricContent}>
-                          <Text style={styles.metricLabel} numberOfLines={2}>
-                            Total Cost
-                          </Text>
-                          <Text style={styles.metricValue}>
-                            {totalCost !== null ? formatNum(totalCost, 2) : "0.00"}
-                          </Text>
-                          <Text style={styles.metricUnit}>₹</Text>
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Row 4: Cost / unit (Full width) */}
-                    <View style={[styles.fullWidthMetricCard, { backgroundColor: "#FAF5FF" }]}>
-                      <View style={[styles.metricIconBox, { backgroundColor: "#EDE9FE" }]}>
-                        <Calculator size={20} color="#7C3AED" />
-                      </View>
-                      <View style={styles.metricContent}>
-                        <Text style={styles.metricLabel} numberOfLines={1}>
-                          Cost / {primaryUnit}
-                        </Text>
-                        <Text style={styles.metricValue}>
-                          {costPerUnit !== null ? formatNum(costPerUnit, 2) : "—"}
-                        </Text>
-                        <Text style={styles.metricUnit}>₹ / {primaryUnit}</Text>
                       </View>
                     </View>
                   </View>
@@ -469,7 +710,7 @@ export const ProductSecScreen: React.FC = () => {
         )}
       </ScrollView>
 
-      {/* Persistent Bottom Bar */}
+      {/* Persistent Bottom Navigation Footer */}
       <AppFooter activeTab="SEC" />
     </View>
   );
@@ -622,58 +863,100 @@ const styles = StyleSheet.create({
   chevronButton: {
     padding: 2,
   },
-  // Metrics Grid
+  // Metrics Grid: 2 columns x 4 rows
   metricsGrid: {
     paddingHorizontal: 14,
     paddingBottom: 14,
-    gap: 12,
+    gap: 10,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
     paddingTop: 14,
   },
   metricRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   metricCard: {
     flex: 1,
     borderRadius: 14,
+    borderWidth: 1,
     padding: 12,
     minHeight: 110,
     justifyContent: "space-between",
   },
-  fullWidthMetricCard: {
-    borderRadius: 14,
-    padding: 14,
-    minHeight: 85,
-    justifyContent: "space-between",
+  // Color themes for the 8 cards
+  cardGray: {
+    backgroundColor: "#F8FAFC",
+    borderColor: "#E2E8F0",
+  },
+  iconBoxGray: {
+    backgroundColor: "#F1F5F9",
+  },
+  cardPurple: {
+    backgroundColor: "#FAF5FF",
+    borderColor: "#E9D5FF",
+  },
+  iconBoxPurple: {
+    backgroundColor: "#EDE9FE",
+  },
+  cardBlue: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
+  },
+  iconBoxBlue: {
+    backgroundColor: "#DBEAFE",
+  },
+  cardGreen: {
+    backgroundColor: "#F0FDF4",
+    borderColor: "#BBF7D0",
+  },
+  iconBoxGreen: {
+    backgroundColor: "#DCFCE7",
+  },
+  cardOrange: {
+    backgroundColor: "#FFF7ED",
+    borderColor: "#FED7AA",
+  },
+  iconBoxOrange: {
+    backgroundColor: "#FFEDD5",
+  },
+  cardPink: {
+    backgroundColor: "#FDF2F8",
+    borderColor: "#FBCFE8",
+  },
+  iconBoxPink: {
+    backgroundColor: "#FCE7F3",
   },
   metricIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   metricContent: {
     justifyContent: "flex-end",
   },
+  labelWithInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     color: "#334155",
-    lineHeight: 16,
-    marginBottom: 4,
+    lineHeight: 15,
+    marginBottom: 3,
   },
   metricValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
     color: "#0F172A",
-    lineHeight: 24,
+    lineHeight: 22,
   },
   metricUnit: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "600",
     color: "#64748B",
     marginTop: 2,

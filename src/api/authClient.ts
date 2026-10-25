@@ -3,9 +3,9 @@
  * ----------------------------------------------------------------------------
  * Dedicated Axios instance for the DEPLOYED AUTH backend only.
  *
- * Base URL: https://dev.esmbackend.click/api/auth  (fixed deployed endpoint)
+ * Base URL: https://dev.esm.co.in/api/auth  (fixed deployed endpoint)
  * Login:    POST /api/v1/auth/login
- * Full:     https://dev.esmbackend.click/api/auth/api/v1/auth/login
+ * Full:     https://dev.esm.co.in/api/auth/api/v1/auth/login
  *
  * This client:
  *  - Never reads a user-configurable URL from storage

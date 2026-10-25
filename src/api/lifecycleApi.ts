@@ -6,7 +6,7 @@ import { CONFIG } from "../config/constants";
 import { AlertItem, AlertStatus, ApplyScope, isAlertAcknowledged, isAlertSolved } from "../types/alert";
 import { alertApi } from "./alertApi";
 
-export const DEPLOYED_TELEMETRY_BASE_URL = "https://dev.esmbackend.click/api/telemetry";
+export const DEPLOYED_TELEMETRY_BASE_URL = "https://dev.esm.co.in/api/telemetry";
 
 export const TELEMETRY_BASE_URL =
   process.env.EXPO_PUBLIC_TELEMETRY_API_BASE_URL?.trim() || DEPLOYED_TELEMETRY_BASE_URL;

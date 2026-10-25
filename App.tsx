@@ -28,6 +28,13 @@ export default function App() {
     // 0. Auto-check and reload if new EAS OTA update is available
     async function checkOtaUpdates() {
       try {
+        console.log("[Updates] Current runtime status:", {
+          updateId: Updates.updateId,
+          channel: Updates.channel,
+          runtimeVersion: Updates.runtimeVersion,
+          isEmbeddedLaunch: Updates.isEmbeddedLaunch,
+          testStamp: "PERMANENT_EAS_OTA_VERIFIED_v1.2.0_build23"
+        });
         if (!__DEV__) {
           const update = await Updates.checkForUpdateAsync();
           if (update.isAvailable) {

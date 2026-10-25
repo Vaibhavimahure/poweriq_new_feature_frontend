@@ -11,7 +11,7 @@
  * ----------------------------------------------------------------------------
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -27,7 +27,11 @@ import {
 } from "../../components/common/DateRangeSelector";
 import { PlantPowerFlowCard } from "./components/PlantPowerFlowCard";
 import { SolarInverterEditModal } from "./components/SolarInverterEditModal";
-import { MachineWiseSecCard, MachineSecData } from "./components/MachineWiseSecCard";
+import {
+  MachineWiseSecCard,
+  MachineSecData,
+  isSecProductionDid,
+} from "./components/MachineWiseSecCard";
 import { useAuth } from "../../context/AuthContext";
 import { useDateFilter } from "../../context/DateFilterContext";
 import { CONFIG } from "../../config/constants";
@@ -65,6 +69,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const { user } = useAuth();
   const navigation = useNavigation<any>();
+  const lastRequestSeq = useRef(0);
 
   // Global Shared Calendar / Date Filter Context
   const {
@@ -76,6 +81,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     handleProductionTimeToggle,
     activeFromSec,
     activeToSec,
+    resolvedDateRange,
     setBillingCycleDay,
   } = useDateFilter();
 
@@ -190,6 +196,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   // Fetch Plant Power Flow data
   const loadPlantPowerFlow = useCallback(async () => {
+    const reqSeq = ++lastRequestSeq.current;
     setPowerFlowLoading(true);
     setPowerFlowError(null);
 
@@ -207,6 +214,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         fetchPlantPowerFlow({ fromSec, toSec, from: startIso, to: endIso, mode }),
         fetchSecOverview(true),
       ]);
+
+      if (reqSeq !== lastRequestSeq.current) return;
 
       const costVal = costResRaw.status === "fulfilled" ? costResRaw.value : null;
       if (costVal) setPowerFlowCostData(costVal);
@@ -258,6 +267,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         }),
       ]);
 
+      if (reqSeq !== lastRequestSeq.current) return;
+
       if (solarRes.status === "fulfilled") {
         setSolarPerf(solarRes.value);
       }
@@ -269,8 +280,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       // 4. Fetch Machine-wise SEC metrics, config mappings & favorite machines runtime
       setMachineSecLoading(true);
       try {
-        const dateFromStr = startIso.split("T")[0];
-        const dateToStr = endIso.split("T")[0];
+        const dateFromStr = resolvedDateRange?.from || startIso.split("T")[0];
+        const dateToStr = resolvedDateRange?.to || endIso.split("T")[0];
 
         const [machineOverviewRes, configsRes, favMachinesRes] = await Promise.allSettled([
           fetchSecMachineOverview({
@@ -285,6 +296,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             mode,
           }),
         ]);
+
+        if (reqSeq !== lastRequestSeq.current) return;
 
         const configsData = configsRes.status === "fulfilled" ? configsRes.value : [];
         const productsList = Array.isArray(configsData) ? configsData : (configsData as any)?.products || [];
@@ -316,6 +329,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             fav?.fullLoadHours ??
             fav?.runtimeBreakdown?.fullLoadHours ??
             fav?.efficientHours ??
+            fav?.runtime?.current?.bands?.full_load?.hours ??
             0
           );
           if (Number.isFinite(rt) && rt > 0) {
@@ -326,16 +340,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         const byDid = new Map<string, MachineSecData>();
 
         productsList.forEach((prod: any) => {
-          const devices = Array.isArray(prod?.primaryDevices)
-            ? prod.primaryDevices
-            : Array.isArray(prod?.devices)
-            ? prod.devices
-            : [];
+          const candidates = [
+            prod?.selectedLtDevices,
+            prod?.selected_lt_devices,
+            prod?.primaryDevices,
+            prod?.primary_devices,
+            prod?.devices,
+          ];
+          const devices = candidates.find((arr) => Array.isArray(arr) && arr.length > 0) || [];
 
           devices.forEach((dev: any) => {
             if (dev?.isActive === false) return;
             const didKey = String(dev?.did || "").trim().toUpperCase();
-            if (!didKey) return;
+            if (!didKey || !isSecProductionDid(didKey)) return;
 
             if (!byDid.has(didKey)) {
               byDid.set(didKey, {
@@ -363,7 +380,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
         metricsMachines.forEach((m: any) => {
           const didKey = String(m?.did || "").trim().toUpperCase();
-          if (didKey && !byDid.has(didKey)) {
+          if (didKey && !byDid.has(didKey) && isSecProductionDid(didKey)) {
             byDid.set(didKey, {
               did: didKey,
               name: String(m?.name || didKey).trim(),
@@ -375,10 +392,47 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           }
         });
 
+        // Query missing machine runtimes in parallel matching ProductSecScreen
+        const missingDids = Array.from(byDid.keys()).filter((did) => !runtimeByDid.has(did));
+        if (missingDids.length > 0) {
+          await Promise.allSettled(
+            missingDids.map(async (did) => {
+              try {
+                const res = await fetchFavoriteMachines({
+                  did,
+                  from: fromSec,
+                  to: toSec,
+                  mode,
+                });
+                const card =
+                  res?.favorites?.[0] ||
+                  res?.cards?.[0] ||
+                  (Array.isArray(res?.data) ? res.data[0] : res?.data) ||
+                  res;
+                const rt = Number(
+                  card?.runtime?.fullLoadHours ??
+                  card?.fullLoadHours ??
+                  card?.runtimeBreakdown?.fullLoadHours ??
+                  card?.efficientHours ??
+                  card?.runtime?.current?.bands?.full_load?.hours ??
+                  0
+                );
+                if (Number.isFinite(rt) && rt >= 0) {
+                  runtimeByDid.set(did, rt);
+                }
+              } catch {
+                // Ignore failure for individual device
+              }
+            })
+          );
+        }
+
+        if (reqSeq !== lastRequestSeq.current) return;
+
         const mergedList: MachineSecData[] = [];
         byDid.forEach((configuredMachine, didKey) => {
           const metric = metricsMap.get(didKey) || {};
-          const runtime = runtimeByDid.get(didKey) ?? configuredMachine.productionRuntimeHours ?? null;
+          const runtime = runtimeByDid.get(didKey) ?? null;
 
           mergedList.push({
             ...configuredMachine,
@@ -392,25 +446,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             machineEnergy: metric?.machineEnergy ?? metric?.totalEnergy ?? null,
             secPerProductionUnit: metric?.secPerProductionUnit ?? metric?.sec ?? null,
             costPerProductionUnit: metric?.costPerProductionUnit ?? null,
-            logCount: Number(metric?.logCount) || configuredMachine.logCount || 0,
+            logCount: Number(metric?.logCount) || 0,
             productionRuntimeHours: runtime,
           });
         });
 
-        if (mergedList.length > 0) {
+        if (reqSeq === lastRequestSeq.current) {
           setMachineSecList(mergedList);
         }
       } catch (secErr) {
         console.warn("[HomeScreen] Machine-wise SEC fetch error:", secErr);
       } finally {
-        setMachineSecLoading(false);
+        if (reqSeq === lastRequestSeq.current) {
+          setMachineSecLoading(false);
+        }
       }
     } catch (err: any) {
-      setPowerFlowError(err?.message || "Failed to load power flow.");
+      if (reqSeq === lastRequestSeq.current) {
+        setPowerFlowError(err?.message || "Failed to load power flow.");
+      }
     } finally {
-      setPowerFlowLoading(false);
+      if (reqSeq === lastRequestSeq.current) {
+        setPowerFlowLoading(false);
+      }
     }
-  }, [activeFromSec, activeToSec]);
+  }, [activeFromSec, activeToSec, resolvedDateRange, customRange, companyInfo]);
 
   // Fetch Alerts (Deduplicated single query)
   const loadAlerts = useCallback(async () => {

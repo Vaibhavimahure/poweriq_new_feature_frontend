@@ -3,7 +3,7 @@
  * ----------------------------------------------------------------------------
  * Dedicated Axios instance for the deployed ALERT backend.
  *
- * Base URL: https://dev.esmbackend.click/api/alert/api/v1
+ * Base URL: https://dev.esm.co.in/api/alert/api/v1
  *
  * Design principles:
  *  - DEFAULT is always the deployed HTTPS URL — never a local address
@@ -78,7 +78,7 @@ export const getAlertBaseUrl = async (): Promise<string> => {
           stored,
           "→ clearing, reverting to deployed URL"
         );
-        storage.removeItem(CONFIG.STORAGE_KEYS.ALERT_BASE_URL).catch(() => {});
+        storage.removeItem(CONFIG.STORAGE_KEYS.ALERT_BASE_URL).catch(() => { });
         // Fall through to default below
       } else {
         // Valid stored override (e.g. production URL or user-set LAN URL)
@@ -117,7 +117,7 @@ export const resetAlertBaseUrl = async (): Promise<void> => {
 // ============================================================================
 storage
   .removeItem("@live_alerts_custom_api_url")
-  .catch(() => {});
+  .catch(() => { });
 
 // ============================================================================
 // Axios instance — starts with the deployed production URL
